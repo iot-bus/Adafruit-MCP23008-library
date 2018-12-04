@@ -185,3 +185,85 @@ void Adafruit_MCP23008::write8(uint8_t addr, uint8_t data) {
 #endif
   Wire.endTransmission();
 }
+
+/**
+ * Configures the interrupt system. 
+ * Opendrain will set the INT pin to value or open drain.
+ * Polarity will set LOW or HIGH on interrupt.
+ * Default values after Power On Reset are: (false, false, LOW)
+ * If you are connecting the INT pin to arduino 2/3, you should configure the interupt handling as FALLING with
+ * the default configuration.
+ */
+void Adafruit_MCP23008::setupInterrupts(uint8_t openDrain, uint8_t polarity){
+	// configure the port 
+	uint8_t ioconfValue=read8(MCP23008_IOCON);
+	bitWrite(ioconfValue,2,openDrain);
+	bitWrite(ioconfValue,1,polarity);
+	write8(MCP23008_IOCON,ioconfValue);
+}
+
+/**
+ * Set's up a pin for interrupt. uses arduino MODEs: CHANGE, FALLING, RISING.
+ *
+ * Note that the interrupt condition finishes when you read the information about the port / value
+ * that caused the interrupt or you read the port itself. Check the datasheet can be confusing.
+ *
+ */
+void Adafruit_MCP23008::setupInterruptPin(uint8_t pin, uint8_t mode) {
+
+	// set the pin interrupt control (0 means change, 1 means compare against given value);
+	updateRegisterBit(pin,(mode!=CHANGE),MCP23008_INTCON);
+	// if the mode is not CHANGE, we need to set up a default value, different value triggers interrupt
+
+	// In a RISING interrupt the default value is 0, interrupt is triggered when the pin goes to 1.
+	// In a FALLING interrupt the default value is 1, interrupt is triggered when pin goes to 0.
+	updateRegisterBit(pin,(mode==FALLING),MCP23008_DEFVAL);
+
+	// enable the pin for interrupt
+	updateRegisterBit(pin,HIGH,MCP23008_GPINTEN);
+
+}
+
+uint8_t Adafruit_MCP23008::getLastInterruptPin(){
+	uint8_t intf;
+
+	// port
+	intf=read8(MCP23008_INTF);
+	for(int i=0;i<8;i++) if (bitRead(intf,i)) return i;
+
+	return MCP23008_INT_ERR;
+
+}
+uint8_t Adafruit_MCP23008::getLastInterruptPinValue(){
+	uint8_t intPin=getLastInterruptPin();
+	if(intPin != MCP23008_INT_ERR){
+    Serial.println(intPin);
+		uint8_t bit = bitForPin(intPin);
+		return (read8(MCP23008_INTCAP)>>bit) & (0x01);
+	}
+
+	return MCP23008_INT_ERR;
+}
+
+/**
+ * Bit number associated to a give Pin
+ */
+uint8_t Adafruit_MCP23008::bitForPin(uint8_t pin){
+	return pin%8;
+}
+
+/**
+ * Helper to update a single bit of an port register.
+ * - Reads the current register value
+ * - Writes the new register value
+ */
+void Adafruit_MCP23008::updateRegisterBit(uint8_t pin, uint8_t pValue, uint8_t regAddr) {
+	uint8_t regValue;
+	uint8_t bit=bitForPin(pin);
+	regValue = read8(regAddr);
+
+	// set the value for the particular bit
+	bitWrite(regValue,bit,pValue);
+
+	write8(regAddr,regValue);
+}
